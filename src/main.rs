@@ -1,0 +1,597 @@
+use color_eyre::eyre::Result;
+use colored::Colorize;
+use rand::seq::{IndexedRandom, SliceRandom};
+use ratatui::{
+    DefaultTerminal, Frame,
+    crossterm::event::{self, Event},
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Stylize},
+    symbols::Marker,
+    text::Line,
+    widgets::{
+        Block,
+        BorderType::{Double, Thick},
+        canvas::{Canvas, Rectangle},
+    },
+};
+use std::time::{Duration, Instant};
+
+#[derive(Debug, Clone, Copy)]
+struct Mino {
+    x: f64,
+    y: f64,
+    color: Color,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Tetromino {
+    I,
+    O,
+    J,
+    L,
+    T,
+    S,
+    Z,
+}
+
+struct TetrominoObject {
+    minos: [Mino; 4],
+    pos: [f64; 2],
+    color: Color,
+}
+
+struct AppState {
+    period: u64,
+    tetromino: TetrominoObject,
+    next: [Mino; 4],
+    hold: [Mino; 4],
+    has_hold: bool,
+    minos: Vec<Mino>,
+}
+
+impl AppState {
+    fn update(&mut self) {
+        // fall
+        if self.tetromino.minos.iter().any(|x| {
+            (x.y + self.tetromino.pos[1] <= 0.0)
+                || self.minos.iter().any(|m| {
+                    m.x == x.x + self.tetromino.pos[0] && m.y == x.y + self.tetromino.pos[1] - 1.0
+                })
+        }) {
+            for mino in &self.tetromino.minos {
+                self.minos.push(Mino {
+                    x: mino.x + self.tetromino.pos[0],
+                    y: mino.y + self.tetromino.pos[1],
+                    color: self.tetromino.color,
+                });
+            }
+
+            // generate new tetromino at top
+            self.tetromino = new_tetromino(self.next);
+            self.next = get_next_tetromino(get_random_tetromino());
+        } else {
+            self.tetromino.pos[1] -= 1.0;
+        }
+
+        let mut level = 0.0;
+        while level <= 20.0 {
+            let mut row_full = true;
+
+            let mut col = 0.0;
+            while col < 10.0 {
+                if !self
+                    .minos
+                    .iter()
+                    .any(|mino| mino.x == col && mino.y == level)
+                {
+                    row_full = false;
+                    break;
+                }
+
+                col += 1.0;
+            }
+
+            if row_full {
+                self.clear_row(level);
+            }
+
+            level += 1.0;
+        }
+    }
+
+    fn clear_row(&mut self, row: f64) {
+        self.minos.retain(|mino| mino.y != row);
+
+        for mino in self.minos.iter_mut() {
+            if mino.y > row {
+                mino.y -= 1.0;
+            }
+        }
+    }
+
+    fn hold(&mut self) {
+        if self.has_hold {
+            let held = self.hold;
+
+            self.hold = self.tetromino.minos;
+            self.tetromino = new_tetromino(held);
+        } else {
+            self.has_hold = true;
+
+            self.hold = self.tetromino.minos;
+            self.tetromino = new_tetromino(self.next);
+            self.next = get_next_tetromino(get_random_tetromino());
+        }
+    }
+}
+
+impl TetrominoObject {
+    fn twist(&mut self, minos: &Vec<Mino>, flipped: bool) {
+        // if flipped = true, then turn clockwise
+        if flipped {
+            for p in self.minos.iter_mut() {
+                *p = Mino {
+                    x: p.y,
+                    y: -1.0 * p.x,
+                    color: p.color,
+                }
+            }
+        } else {
+            for p in self.minos.iter_mut() {
+                *p = Mino {
+                    x: -1.0 * p.y,
+                    y: p.x,
+                    color: p.color,
+                }
+            }
+        }
+    }
+
+    fn shift(&mut self, minos: &Vec<Mino>, dir: f64) {
+        if !self.minos.iter().any(|x| {
+            (x.x + self.pos[0] + dir < 0.0 || x.x + self.pos[0] + dir >= 10.0)
+                || minos
+                    .iter()
+                    .any(|m| m.x == x.x + self.pos[0] + dir && m.y == x.y + self.pos[1])
+        }) {
+            self.pos[0] += dir;
+        }
+    }
+
+    fn slam(&mut self, minos: &Vec<Mino>) {
+        let mut delta = 0.0;
+
+        while !self.minos.iter().any(|x| {
+            (x.y + self.pos[1] + delta <= 0.0)
+                || minos
+                    .iter()
+                    .any(|m| m.x == x.x + self.pos[0] && m.y == x.y + self.pos[1] + delta - 1.0)
+        }) {
+            delta -= 1.0;
+        }
+
+        self.pos[1] += delta;
+    }
+}
+
+fn new_tetromino(minos: [Mino; 4]) -> TetrominoObject {
+    let offset_x = 4.0;
+    let offset_y = 20.0;
+
+    TetrominoObject {
+        pos: [offset_x, offset_y],
+        minos: minos,
+        color: minos[0].clone().color,
+    }
+}
+
+fn get_next_tetromino(ttype: Tetromino) -> [Mino; 4] {
+    let mut rng = rand::rng();
+    let colors = [
+        Color::Red,
+        Color::Blue,
+        Color::Green,
+        Color::Yellow,
+        Color::Magenta,
+        Color::Cyan,
+        Color::LightRed,
+    ];
+    let color = *colors.choose(&mut rng).unwrap();
+
+    let minos_array = match ttype {
+        Tetromino::I => [
+            Mino {
+                x: -1.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: 0.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: 1.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: 2.0,
+                y: 0.0,
+                color: color,
+            },
+        ],
+        Tetromino::O => [
+            Mino {
+                x: 0.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: 1.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: 1.0,
+                y: 1.0,
+                color: color,
+            },
+            Mino {
+                x: 0.0,
+                y: 1.0,
+                color: color,
+            },
+        ],
+        Tetromino::J => [
+            Mino {
+                x: 0.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: -1.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: -1.0,
+                y: 1.0,
+                color: color,
+            },
+            Mino {
+                x: 1.0,
+                y: 0.0,
+                color: color,
+            },
+        ],
+        Tetromino::L => [
+            Mino {
+                x: 0.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: -1.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: 1.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: 1.0,
+                y: 1.0,
+                color: color,
+            },
+        ],
+        Tetromino::T => [
+            Mino {
+                x: 0.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: -1.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: 1.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: 0.0,
+                y: 1.0,
+                color: color,
+            },
+        ],
+        Tetromino::S => [
+            Mino {
+                x: 0.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: -1.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: 0.0,
+                y: 1.0,
+                color: color,
+            },
+            Mino {
+                x: 1.0,
+                y: 1.0,
+                color: color,
+            },
+        ],
+        Tetromino::Z => [
+            Mino {
+                x: 0.0,
+                y: 0.0,
+                color: color,
+            },
+            Mino {
+                x: 0.0,
+                y: 1.0,
+                color: color,
+            },
+            Mino {
+                x: -1.0,
+                y: 1.0,
+                color: color,
+            },
+            Mino {
+                x: 1.0,
+                y: 0.0,
+                color: color,
+            },
+        ],
+    };
+
+    return minos_array;
+}
+
+fn get_random_tetromino() -> Tetromino {
+    let mut rng = rand::rng();
+    let types = [
+        Tetromino::I,
+        Tetromino::O,
+        Tetromino::J,
+        Tetromino::L,
+        Tetromino::T,
+        Tetromino::S,
+        Tetromino::Z,
+    ];
+
+    let chosen_type = types.choose(&mut rng).unwrap();
+
+    return chosen_type.clone();
+}
+
+fn main() -> Result<()> {
+    color_eyre::install()?;
+
+    println!(
+        "Running {} on terminal...",
+        Colorize::bold("tuitris v1.0").blue()
+    );
+
+    let state = &mut AppState {
+        period: 240,
+        minos: vec![],
+        tetromino: new_tetromino(get_next_tetromino(get_random_tetromino())),
+        next: get_next_tetromino(get_random_tetromino()),
+        hold: get_next_tetromino(Tetromino::I),
+        has_hold: false,
+    };
+
+    let terminal = ratatui::init();
+    let result = run(terminal, state);
+
+    ratatui::restore();
+
+    result
+}
+
+fn run(mut terminal: DefaultTerminal, app_state: &mut AppState) -> Result<()> {
+    let tick_rate = Duration::from_millis(app_state.period); // Controls game speed (lower = faster)
+    let mut last_tick = Instant::now();
+
+    loop {
+        let timeout = tick_rate
+            .checked_sub(last_tick.elapsed())
+            .unwrap_or_else(|| Duration::from_secs(0));
+
+        // Rendering
+        terminal.draw(|f| render(f, app_state))?;
+
+        // Input
+        if event::poll(timeout)? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    event::KeyCode::Esc => {
+                        break;
+                    }
+
+                    event::KeyCode::Left => {
+                        app_state.tetromino.shift(&app_state.minos, -1.0);
+                    }
+
+                    event::KeyCode::Right => {
+                        app_state.tetromino.shift(&app_state.minos, 1.0);
+                    }
+
+                    event::KeyCode::Char('z') => {
+                        app_state.tetromino.twist(&app_state.minos, true);
+                    }
+
+                    event::KeyCode::Char('x') => {
+                        app_state.tetromino.twist(&app_state.minos, false);
+                    }
+
+                    event::KeyCode::Up => {
+                        app_state.tetromino.slam(&app_state.minos);
+                    }
+
+                    event::KeyCode::Char(' ') => {
+                        app_state.tetromino.slam(&app_state.minos);
+                    }
+
+                    event::KeyCode::Char('c') => {
+                        app_state.hold();
+                    }
+
+                    _ => {}
+                }
+            }
+        }
+
+        if last_tick.elapsed() >= tick_rate {
+            app_state.update();
+            last_tick = Instant::now();
+        }
+
+        // if app_state.status {
+        //     break;
+        // }
+    }
+
+    Ok(())
+}
+
+fn render(frame: &mut Frame, app_state: &mut AppState) {
+    let main_area = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(28),
+            Constraint::Fill(1),
+        ])
+        .split(frame.area());
+
+    let center = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(16),
+            Constraint::Length(35),
+            Constraint::Length(16),
+            Constraint::Fill(1),
+        ])
+        .split(main_area[1]);
+
+    let hold_area = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(7)])
+        .split(center[1]);
+
+    let hold_panel = Block::bordered()
+        .fg(Color::Magenta)
+        .border_type(Double)
+        .title_top(Line::from("[ HOLD (C) ]").centered().bold());
+
+    let side_panel = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Length(7)])
+        .split(center[3]);
+
+    let board = Block::bordered().fg(Color::White).border_type(Double);
+
+    let score_border = Block::bordered()
+        .fg(Color::Yellow)
+        .border_type(Double)
+        .title_top(Line::from("[ SCORE ]").centered().bold());
+
+    let nextup_border = Block::bordered()
+        .fg(Color::Gray)
+        .border_type(Double)
+        .title_top(Line::from("[ NEXT UP ]").centered().bold());
+
+    let nextup_display = Canvas::default()
+        .block(nextup_border)
+        .marker(Marker::Braille)
+        .x_bounds([0.0, 6.0])
+        .y_bounds([0.0, 6.0])
+        .paint(|ctx| {
+            for mino in app_state.next.iter() {
+                ctx.draw(&Rectangle {
+                    x: mino.x + 2.0,
+                    y: mino.y + 2.0,
+                    width: 1.0,
+                    height: 1.0,
+                    color: mino.color,
+                })
+            }
+        });
+
+    let hold_display = Canvas::default()
+        .block(hold_panel)
+        .marker(Marker::Braille)
+        .x_bounds([0.0, 6.0])
+        .y_bounds([0.0, 6.0])
+        .paint(|ctx| {
+            if app_state.has_hold {
+                for mino in app_state.hold.iter() {
+                    ctx.draw(&Rectangle {
+                        x: mino.x + 2.0,
+                        y: mino.y + 2.0,
+                        width: 1.0,
+                        height: 1.0,
+                        color: mino.color,
+                    })
+                }
+            }
+        });
+
+    let board_display = Canvas::default()
+        .block(board)
+        .marker(Marker::Braille)
+        .x_bounds([0.0, 10.0])
+        .y_bounds([0.0, 20.0])
+        .paint(|ctx| {
+            for mino in &app_state.minos {
+                ctx.draw(&Rectangle {
+                    x: mino.x,
+                    y: mino.y,
+                    width: 1.0,
+                    height: 1.0,
+                    color: mino.color,
+                });
+
+                let mut fill_h = mino.y;
+                while fill_h <= mino.y + 1.0 {
+                    ctx.draw(&ratatui::widgets::canvas::Line {
+                        x1: mino.x,
+                        y1: fill_h,
+                        x2: mino.x + 1.0,
+                        y2: fill_h,
+                        color: mino.color,
+                    });
+
+                    fill_h += 0.25;
+                }
+            }
+
+            for mino in &app_state.tetromino.minos {
+                ctx.draw(&Rectangle {
+                    x: mino.x + &app_state.tetromino.pos[0],
+                    y: mino.y + &app_state.tetromino.pos[1],
+                    width: 1.0,
+                    height: 1.0,
+                    color: mino.color,
+                })
+            }
+        });
+
+    frame.render_widget(hold_display, hold_area[0]);
+    frame.render_widget(board_display, center[2]);
+    frame.render_widget(score_border, side_panel[0]);
+    frame.render_widget(nextup_display, side_panel[1]);
+}

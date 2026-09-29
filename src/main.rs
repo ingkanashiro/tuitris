@@ -1196,7 +1196,7 @@ fn main() -> Result<()> {
     );
 
     let state = &mut AppState {
-        period: 240,
+        period: 20,
         minos: vec![],
         tetromino: new_tetromino(get_next_tetromino(get_random_tetromino())),
         next: get_next_tetromino(get_random_tetromino()),
@@ -1227,12 +1227,13 @@ fn main() -> Result<()> {
 }
 
 fn run(mut terminal: DefaultTerminal, app_state: &mut AppState) -> Result<()> {
-    let tick_rate = Duration::from_millis(app_state.period); // Controls game speed (lower = faster)
+    let mut tick_rate = Duration::from_millis(app_state.period); // Controls game speed (lower = faster)
     let mut last_tick = Instant::now();
 
     let mut factor = 1;
 
     loop {
+        tick_rate = Duration::from_millis(app_state.period);
         let timeout = tick_rate
             .checked_sub(last_tick.elapsed())
             .unwrap_or_else(|| Duration::from_secs(0));

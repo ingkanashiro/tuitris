@@ -1,16 +1,17 @@
 use color_eyre::eyre::Result;
 use colored::Colorize;
-use rand::seq::{IndexedRandom, SliceRandom};
+use rand::seq::IndexedRandom;
 use ratatui::{
     DefaultTerminal, Frame,
-    crossterm::event::{self, Event},
+    crossterm::event::{self, Event, KeyEventKind},
     layout::{Constraint, Direction, Layout},
     style::{Color, Stylize},
     symbols::Marker,
     text::Line,
     widgets::{
         Block,
-        BorderType::{Double, Thick},
+        BorderType::Double,
+        Paragraph,
         canvas::{Canvas, Rectangle},
     },
 };
@@ -45,18 +46,33 @@ struct TetrominoObject {
 
 struct AppState {
     period: u64,
+
     tetromino: TetrominoObject,
     next: [Mino; 4],
     hold: [Mino; 4],
+
     has_hold: bool,
     can_hold: bool,
+
     minos: Vec<Mino>,
     game_over: bool,
+
+    score: u64,
+    level: u64,
+    clears: u64,
+
+    alert: u8,
 }
 
 impl AppState {
     fn update(&mut self) {
-        // fall
+        self.period =
+            (1000.0 * (0.8 - (self.level - 1) as f64 * 0.007).powf((self.level - 1) as f64)) as u64;
+
+        if self.alert > 0 {
+            self.alert -= 1;
+        }
+
         if self.tetromino.minos.iter().any(|x| {
             (x.y + self.tetromino.pos[1] <= 0.0)
                 || self.minos.iter().any(|m| {
@@ -92,17 +108,15 @@ impl AppState {
             self.tetromino.pos[1] -= 1.0;
         }
 
-        let mut level = 0.0;
-        while level <= 20.0 {
+        let mut row = 0.0;
+        let mut rows_cleared = 0;
+
+        while row <= 20.0 {
             let mut row_full = true;
 
             let mut col = 0.0;
             while col < 10.0 {
-                if !self
-                    .minos
-                    .iter()
-                    .any(|mino| mino.x == col && mino.y == level)
-                {
+                if !self.minos.iter().any(|mino| mino.x == col && mino.y == row) {
                     row_full = false;
                     break;
                 }
@@ -111,11 +125,28 @@ impl AppState {
             }
 
             if row_full {
-                self.clear_row(level);
+                self.clear_row(row);
+                rows_cleared += 1;
+                self.clears += 1;
+
+                if self.clears % 10 == 0 {
+                    self.level += 1;
+                    self.alert = 6;
+                }
             }
 
-            level += 1.0;
+            row += 1.0;
         }
+
+        // score
+        self.score += (self.level + 1)
+            * match rows_cleared {
+                0 => 0,
+                1 => 40,
+                2 => 100,
+                3 => 300,
+                _ => 1200,
+            }
     }
 
     fn clear_row(&mut self, row: f64) {
@@ -1173,6 +1204,10 @@ fn main() -> Result<()> {
         has_hold: false,
         can_hold: true,
         game_over: false,
+        score: 0,
+        level: 1,
+        clears: 0,
+        alert: 0,
     };
 
     let terminal = ratatui::init();
@@ -1180,12 +1215,22 @@ fn main() -> Result<()> {
 
     ratatui::restore();
 
+    println!(
+        "\nGame finished after reaching {} with {} and {}.\nYou can run {} to play again.\n",
+        Colorize::bold(format!("level {}", state.level).as_str()).cyan(),
+        Colorize::bold(format!("{} points", state.score).as_str()).yellow(),
+        Colorize::bold(format!("{} rows cleared", state.clears).as_str()).magenta(),
+        Colorize::bold("tetris").blue()
+    );
+
     result
 }
 
 fn run(mut terminal: DefaultTerminal, app_state: &mut AppState) -> Result<()> {
     let tick_rate = Duration::from_millis(app_state.period); // Controls game speed (lower = faster)
     let mut last_tick = Instant::now();
+
+    let mut factor = 1;
 
     loop {
         let timeout = tick_rate
@@ -1223,6 +1268,14 @@ fn run(mut terminal: DefaultTerminal, app_state: &mut AppState) -> Result<()> {
                         app_state.tetromino.slam(&app_state.minos);
                     }
 
+                    event::KeyCode::Down => {
+                        if key.kind == KeyEventKind::Press {
+                            factor = 2;
+                        } else {
+                            factor = 1;
+                        }
+                    }
+
                     event::KeyCode::Char(' ') => {
                         app_state.tetromino.slam(&app_state.minos);
                     }
@@ -1236,7 +1289,7 @@ fn run(mut terminal: DefaultTerminal, app_state: &mut AppState) -> Result<()> {
             }
         }
 
-        if last_tick.elapsed() >= tick_rate {
+        if last_tick.elapsed() >= tick_rate / factor {
             app_state.update();
             last_tick = Instant::now();
         }
@@ -1286,15 +1339,34 @@ fn render(frame: &mut Frame, app_state: &mut AppState) {
 
     let side_panel = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Length(7)])
+        .constraints([
+            Constraint::Length(7),
+            Constraint::Length(3),
+            Constraint::Length(3),
+        ])
         .split(center[3]);
 
-    let board = Block::bordered().fg(Color::White).border_type(Double);
+    let board = Block::bordered()
+        .fg(if &app_state.alert % 2 == 1 {
+            Color::LightCyan
+        } else {
+            Color::White
+        })
+        .border_type(Double);
 
     let score_border = Block::bordered()
         .fg(Color::Yellow)
         .border_type(Double)
         .title_top(Line::from("[ SCORE ]").centered().bold());
+
+    let level_border = Block::bordered()
+        .fg(if &app_state.alert % 2 == 1 {
+            Color::LightCyan
+        } else {
+            Color::Cyan
+        })
+        .border_type(Double)
+        .title_top(Line::from("[ LEVEL ]").centered().bold());
 
     let nextup_border = Block::bordered()
         .fg(Color::Gray)
@@ -1377,8 +1449,19 @@ fn render(frame: &mut Frame, app_state: &mut AppState) {
             }
         });
 
+    let score_display =
+        Paragraph::new(Line::from(format!("{}", &app_state.score)).centered()).block(score_border);
+
+    let level_display = Paragraph::new(if &app_state.alert % 2 == 1 {
+        Line::from("LEVEL UP!").centered().bold()
+    } else {
+        Line::from(format!("{}", &app_state.level)).centered()
+    })
+    .block(level_border);
+
     frame.render_widget(hold_display, hold_area[0]);
     frame.render_widget(board_display, center[2]);
-    frame.render_widget(score_border, side_panel[0]);
-    frame.render_widget(nextup_display, side_panel[1]);
+    frame.render_widget(nextup_display, side_panel[0]);
+    frame.render_widget(score_display, side_panel[1]);
+    frame.render_widget(level_display, side_panel[2]);
 }

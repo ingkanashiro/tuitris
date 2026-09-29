@@ -21,6 +21,7 @@ struct Mino {
     x: f64,
     y: f64,
     color: Color,
+    from: Tetromino,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -38,6 +39,8 @@ struct TetrominoObject {
     minos: [Mino; 4],
     pos: [f64; 2],
     color: Color,
+    from: Tetromino,
+    state: u8,
 }
 
 struct AppState {
@@ -46,7 +49,9 @@ struct AppState {
     next: [Mino; 4],
     hold: [Mino; 4],
     has_hold: bool,
+    can_hold: bool,
     minos: Vec<Mino>,
+    game_over: bool,
 }
 
 impl AppState {
@@ -63,12 +68,26 @@ impl AppState {
                     x: mino.x + self.tetromino.pos[0],
                     y: mino.y + self.tetromino.pos[1],
                     color: self.tetromino.color,
+                    from: self.tetromino.from,
                 });
+            }
+
+            // check if can't generate (lose condition)
+            if self
+                .minos
+                .iter()
+                .any(|mino| mino.y > 20.0 && mino.x <= 6.0 && mino.x >= 2.0)
+            {
+                // you lost
+                self.game_over = true;
+                return;
             }
 
             // generate new tetromino at top
             self.tetromino = new_tetromino(self.next);
             self.next = get_next_tetromino(get_random_tetromino());
+
+            self.can_hold = true;
         } else {
             self.tetromino.pos[1] -= 1.0;
         }
@@ -110,15 +129,388 @@ impl AppState {
     }
 
     fn hold(&mut self) {
+        if !self.can_hold {
+            return;
+        }
+
+        self.can_hold = false;
+
         if self.has_hold {
             let held = self.hold;
 
-            self.hold = self.tetromino.minos;
+            self.hold = match self.tetromino.from {
+                Tetromino::I => [
+                    Mino {
+                        x: -1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 0.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 2.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                ],
+                Tetromino::O => [
+                    Mino {
+                        x: 0.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 0.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                ],
+                Tetromino::J => [
+                    Mino {
+                        x: 0.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: -1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: -1.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                ],
+                Tetromino::L => [
+                    Mino {
+                        x: 0.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: -1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                ],
+                Tetromino::T => [
+                    Mino {
+                        x: 0.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: -1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 0.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                ],
+                Tetromino::S => [
+                    Mino {
+                        x: 0.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: -1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 0.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                ],
+                Tetromino::Z => [
+                    Mino {
+                        x: 0.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 0.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: -1.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                ],
+            };
+
             self.tetromino = new_tetromino(held);
         } else {
             self.has_hold = true;
 
-            self.hold = self.tetromino.minos;
+            self.hold = match self.tetromino.from {
+                Tetromino::I => [
+                    Mino {
+                        x: -1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 0.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 2.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                ],
+                Tetromino::O => [
+                    Mino {
+                        x: 0.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 0.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                ],
+                Tetromino::J => [
+                    Mino {
+                        x: 0.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: -1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: -1.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                ],
+                Tetromino::L => [
+                    Mino {
+                        x: 0.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: -1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                ],
+                Tetromino::T => [
+                    Mino {
+                        x: 0.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: -1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 0.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                ],
+                Tetromino::S => [
+                    Mino {
+                        x: 0.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: -1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 0.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                ],
+                Tetromino::Z => [
+                    Mino {
+                        x: 0.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 0.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: -1.0,
+                        y: 1.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                    Mino {
+                        x: 1.0,
+                        y: 0.0,
+                        color: self.tetromino.color,
+                        from: self.tetromino.from,
+                    },
+                ],
+            };
             self.tetromino = new_tetromino(self.next);
             self.next = get_next_tetromino(get_random_tetromino());
         }
@@ -128,21 +520,380 @@ impl AppState {
 impl TetrominoObject {
     fn twist(&mut self, minos: &Vec<Mino>, flipped: bool) {
         // if flipped = true, then turn clockwise
-        if flipped {
-            for p in self.minos.iter_mut() {
-                *p = Mino {
-                    x: p.y,
-                    y: -1.0 * p.x,
-                    color: p.color,
-                }
+        let fallback = self.state;
+
+        match self.from {
+            Tetromino::O => {
+                return;
             }
-        } else {
-            for p in self.minos.iter_mut() {
-                *p = Mino {
-                    x: -1.0 * p.y,
-                    y: p.x,
-                    color: p.color,
+
+            Tetromino::I => {
+                self.state = (self.state + if flipped { 1 } else { 3 }) % 4;
+                let rotated = match self.state {
+                    0 => [
+                        Mino {
+                            x: -1.0,
+                            y: 0.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 0.0,
+                            y: 0.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 1.0,
+                            y: 0.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 2.0,
+                            y: 0.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                    ],
+
+                    1 => [
+                        Mino {
+                            x: 0.0,
+                            y: 2.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 0.0,
+                            y: 1.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 0.0,
+                            y: 0.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 0.0,
+                            y: -1.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                    ],
+
+                    2 => [
+                        Mino {
+                            x: -1.0,
+                            y: 1.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 0.0,
+                            y: 1.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 1.0,
+                            y: 1.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 2.0,
+                            y: 1.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                    ],
+
+                    3 => [
+                        Mino {
+                            x: 1.0,
+                            y: 2.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 1.0,
+                            y: 1.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 1.0,
+                            y: 0.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 1.0,
+                            y: -1.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                    ],
+
+                    _ => [
+                        Mino {
+                            x: -1.0,
+                            y: 0.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 0.0,
+                            y: 0.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 1.0,
+                            y: 0.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                        Mino {
+                            x: 2.0,
+                            y: 0.0,
+                            color: self.color,
+                            from: self.from,
+                        },
+                    ],
+                };
+
+                // try for overlaps
+                let delta = if flipped {
+                    match self.state {
+                        1 => [
+                            // 0 -> R
+                            [0.0, 0.0],
+                            [-2.0, 0.0],
+                            [1.0, 0.0],
+                            [-2.0, -1.0],
+                            [1.0, 2.0],
+                        ],
+                        2 => [
+                            // R -> 2
+                            [0.0, 0.0],
+                            [-1.0, 0.0],
+                            [2.0, 0.0],
+                            [-1.0, 2.0],
+                            [2.0, -1.0],
+                        ],
+                        3 => [
+                            // 2 -> L
+                            [0.0, 0.0],
+                            [2.0, 0.0],
+                            [-1.0, 0.0],
+                            [2.0, 1.0],
+                            [-1.0, 2.0],
+                        ],
+                        _ => [
+                            // L -> 0
+                            [0.0, 0.0],
+                            [1.0, 0.0],
+                            [-2.0, 0.0],
+                            [1.0, -2.0],
+                            [-2.0, 1.0],
+                        ],
+                    }
+                } else {
+                    match self.state {
+                        1 => [
+                            // 2 -> R
+                            [0.0, 0.0],
+                            [1.0, 0.0],
+                            [-2.0, 0.0],
+                            [1.0, -2.0],
+                            [-2.0, 1.0],
+                        ],
+                        2 => [
+                            // L -> 2
+                            [0.0, 0.0],
+                            [-2.0, 0.0],
+                            [1.0, 0.0],
+                            [-2.0, -1.0],
+                            [1.0, 2.0],
+                        ],
+                        3 => [
+                            // 0 -> L
+                            [0.0, 0.0],
+                            [-1.0, 0.0],
+                            [2.0, 0.0],
+                            [-1.0, 2.0],
+                            [2.0, -1.0],
+                        ],
+                        _ => [
+                            // R -> 0
+                            [0.0, 0.0],
+                            [-2.0, 0.0],
+                            [-1.0, 0.0],
+                            [2.0, 1.0],
+                            [-1.0, -2.0],
+                        ],
+                    }
+                };
+
+                let mut d = 0;
+                while d < 5 {
+                    // try delta[d]
+                    if rotated.iter().any(|mino| {
+                        mino.y + self.pos[1] < 0.0
+                            || mino.x + self.pos[0] < 0.0
+                            || mino.x + self.pos[0] > 9.0
+                            || minos.iter().any(|x| {
+                                x.x == mino.x + self.pos[0] + delta[d][0]
+                                    && x.y == mino.y + self.pos[1] + delta[d][1]
+                            })
+                    }) {
+                        if d == 4 {
+                            self.state = fallback;
+                            return;
+                        }
+
+                        d += 1;
+                    } else {
+                        // found a possible rotation
+                        self.pos[0] += delta[d][0];
+                        self.pos[1] += delta[d][1];
+
+                        break;
+                    }
                 }
+
+                self.minos = rotated;
+            }
+
+            _ => {
+                self.state = (self.state + if flipped { 1 } else { 3 }) % 4;
+                let rotated: [Mino; 4] = if flipped {
+                    std::array::from_fn(|i| {
+                        let p = &self.minos[i];
+                        Mino {
+                            x: p.y,
+                            y: -1.0 * p.x,
+                            color: p.color,
+                            from: p.from,
+                        }
+                    })
+                } else {
+                    std::array::from_fn(|i| {
+                        let p = &self.minos[i];
+                        Mino {
+                            x: -1.0 * p.y,
+                            y: p.x,
+                            color: p.color,
+                            from: p.from,
+                        }
+                    })
+                };
+
+                // try for overlaps
+                let delta = if flipped {
+                    match self.state {
+                        1 => [
+                            // 0 -> R
+                            [0.0, 0.0],
+                            [-1.0, 0.0],
+                            [-1.0, 1.0],
+                            [0.0, -2.0],
+                            [-1.0, -2.0],
+                        ],
+                        2 => [
+                            // R -> 2
+                            [0.0, 0.0],
+                            [1.0, 0.0],
+                            [1.0, -1.0],
+                            [0.0, 2.0],
+                            [1.0, 2.0],
+                        ],
+                        3 => [
+                            // 2 -> L
+                            [0.0, 0.0],
+                            [1.0, 0.0],
+                            [1.0, 1.0],
+                            [0.0, -2.0],
+                            [1.0, -2.0],
+                        ],
+                        _ => [
+                            // L -> 0
+                            [0.0, 0.0],
+                            [-1.0, 0.0],
+                            [-1.0, -1.0],
+                            [0.0, 2.0],
+                            [-1.0, 2.0],
+                        ],
+                    }
+                } else {
+                    match self.state {
+                        1 => [
+                            // 2 -> R
+                            [0.0, 0.0],
+                            [-1.0, 0.0],
+                            [-1.0, 1.0],
+                            [0.0, -2.0],
+                            [-1.0, -2.0],
+                        ],
+                        2 => [
+                            // L -> 2
+                            [0.0, 0.0],
+                            [-1.0, 0.0],
+                            [-1.0, -1.0],
+                            [0.0, 2.0],
+                            [-1.0, 2.0],
+                        ],
+                        3 => [
+                            // 0 -> L
+                            [0.0, 0.0],
+                            [1.0, 0.0],
+                            [1.0, 1.0],
+                            [0.0, -2.0],
+                            [1.0, -2.0],
+                        ],
+                        _ => [
+                            // R -> 0
+                            [0.0, 0.0],
+                            [1.0, 0.0],
+                            [1.0, -1.0],
+                            [0.0, 2.0],
+                            [1.0, 2.0],
+                        ],
+                    }
+                };
+
+                let mut d = 0;
+                while d < 5 {
+                    // try delta[d]
+                    if rotated.iter().any(|mino| {
+                        mino.y + self.pos[1] < 0.0
+                            || mino.x + self.pos[0] < 0.0
+                            || mino.x + self.pos[0] > 9.0
+                            || minos.iter().any(|x| {
+                                x.x == mino.x + self.pos[0] + delta[d][0]
+                                    && x.y == mino.y + self.pos[1] + delta[d][1]
+                            })
+                    }) {
+                        if d == 4 {
+                            self.state = fallback;
+                            return;
+                        }
+
+                        d += 1;
+                    } else {
+                        // found a possible rotation
+                        self.pos[0] += delta[d][0];
+                        self.pos[1] += delta[d][1];
+
+                        break;
+                    }
+                }
+
+                self.minos = rotated;
             }
         }
     }
@@ -182,6 +933,8 @@ fn new_tetromino(minos: [Mino; 4]) -> TetrominoObject {
         pos: [offset_x, offset_y],
         minos: minos,
         color: minos[0].clone().color,
+        from: minos[0].from,
+        state: 0,
     }
 }
 
@@ -204,21 +957,25 @@ fn get_next_tetromino(ttype: Tetromino) -> [Mino; 4] {
                 x: -1.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 0.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 1.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 2.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
         ],
         Tetromino::O => [
@@ -226,21 +983,25 @@ fn get_next_tetromino(ttype: Tetromino) -> [Mino; 4] {
                 x: 0.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 1.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 1.0,
                 y: 1.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 0.0,
                 y: 1.0,
                 color: color,
+                from: ttype,
             },
         ],
         Tetromino::J => [
@@ -248,21 +1009,25 @@ fn get_next_tetromino(ttype: Tetromino) -> [Mino; 4] {
                 x: 0.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: -1.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: -1.0,
                 y: 1.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 1.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
         ],
         Tetromino::L => [
@@ -270,21 +1035,25 @@ fn get_next_tetromino(ttype: Tetromino) -> [Mino; 4] {
                 x: 0.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: -1.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 1.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 1.0,
                 y: 1.0,
                 color: color,
+                from: ttype,
             },
         ],
         Tetromino::T => [
@@ -292,21 +1061,25 @@ fn get_next_tetromino(ttype: Tetromino) -> [Mino; 4] {
                 x: 0.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: -1.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 1.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 0.0,
                 y: 1.0,
                 color: color,
+                from: ttype,
             },
         ],
         Tetromino::S => [
@@ -314,21 +1087,25 @@ fn get_next_tetromino(ttype: Tetromino) -> [Mino; 4] {
                 x: 0.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: -1.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 0.0,
                 y: 1.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 1.0,
                 y: 1.0,
                 color: color,
+                from: ttype,
             },
         ],
         Tetromino::Z => [
@@ -336,21 +1113,25 @@ fn get_next_tetromino(ttype: Tetromino) -> [Mino; 4] {
                 x: 0.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 0.0,
                 y: 1.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: -1.0,
                 y: 1.0,
                 color: color,
+                from: ttype,
             },
             Mino {
                 x: 1.0,
                 y: 0.0,
                 color: color,
+                from: ttype,
             },
         ],
     };
@@ -390,6 +1171,8 @@ fn main() -> Result<()> {
         next: get_next_tetromino(get_random_tetromino()),
         hold: get_next_tetromino(Tetromino::I),
         has_hold: false,
+        can_hold: true,
+        game_over: false,
     };
 
     let terminal = ratatui::init();
@@ -458,9 +1241,9 @@ fn run(mut terminal: DefaultTerminal, app_state: &mut AppState) -> Result<()> {
             last_tick = Instant::now();
         }
 
-        // if app_state.status {
-        //     break;
-        // }
+        if app_state.game_over {
+            break;
+        }
     }
 
     Ok(())
@@ -493,7 +1276,11 @@ fn render(frame: &mut Frame, app_state: &mut AppState) {
         .split(center[1]);
 
     let hold_panel = Block::bordered()
-        .fg(Color::Magenta)
+        .fg(if app_state.can_hold {
+            Color::Magenta
+        } else {
+            Color::DarkGray
+        })
         .border_type(Double)
         .title_top(Line::from("[ HOLD (C) ]").centered().bold());
 

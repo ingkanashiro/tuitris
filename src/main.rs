@@ -53,6 +53,7 @@ struct AppState {
 
     has_hold: bool,
     can_hold: bool,
+    is_soft_drop: bool,
 
     minos: Vec<Mino>,
     game_over: bool,
@@ -111,6 +112,10 @@ impl AppState {
             self.can_hold = true;
         } else {
             self.tetromino.pos[1] -= 1.0;
+
+            if self.is_soft_drop {
+                self.score += 1;
+            }
         }
 
         let mut row = 20.0;
@@ -148,13 +153,13 @@ impl AppState {
         self.clear_row(rows);
 
         // score
-        self.score += (self.level + 1)
+        self.score += (self.level)
             * match rows_cleared {
                 0 => 0,
-                1 => 40,
-                2 => 100,
-                3 => 300,
-                _ => 1200,
+                1 => 100,
+                2 => 300,
+                3 => 500,
+                _ => 800,
             }
     }
 
@@ -956,8 +961,9 @@ impl TetrominoObject {
         }
     }
 
-    fn slam(&mut self, minos: &Vec<Mino>) {
+    fn slam(&mut self, minos: &Vec<Mino>) -> u64 {
         let mut delta = 0.0;
+        let mut extra = 0;
 
         while !self.minos.iter().any(|x| {
             (x.y + self.pos[1] + delta <= 0.0)
@@ -966,9 +972,12 @@ impl TetrominoObject {
                     .any(|m| m.x == x.x + self.pos[0] && m.y == x.y + self.pos[1] + delta - 1.0)
         }) {
             delta -= 1.0;
+            extra += 2;
         }
 
         self.pos[1] += delta;
+
+        return extra;
     }
 }
 
@@ -1223,6 +1232,7 @@ fn main() -> Result<()> {
         hold: get_next_tetromino(Tetromino::I),
         has_hold: false,
         can_hold: true,
+        is_soft_drop: false,
         game_over: false,
         score: 0,
         level: 1,
@@ -1290,8 +1300,10 @@ fn run(mut terminal: DefaultTerminal, app_state: &mut AppState) -> Result<()> {
                     event::KeyCode::Down => {
                         tick_rate = if key.kind == KeyEventKind::Press {
                             if 120 < app_state.period {
+                                app_state.is_soft_drop = true;
                                 Duration::from_millis(80)
                             } else {
+                                app_state.is_soft_drop = false;
                                 Duration::from_millis(app_state.period)
                             }
                         } else {
@@ -1300,7 +1312,7 @@ fn run(mut terminal: DefaultTerminal, app_state: &mut AppState) -> Result<()> {
                     }
 
                     event::KeyCode::Char(' ') => {
-                        app_state.tetromino.slam(&app_state.minos);
+                        app_state.score += app_state.tetromino.slam(&app_state.minos);
                         tick_rate = Duration::from_millis(0);
                     }
 

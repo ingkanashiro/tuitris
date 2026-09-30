@@ -110,6 +110,7 @@ impl AppState {
 
         let mut row = 0.0;
         let mut rows_cleared = 0;
+        let mut rows: Vec<f64> = vec![];
 
         while row <= 20.0 {
             let mut row_full = true;
@@ -125,11 +126,12 @@ impl AppState {
             }
 
             if row_full {
-                self.clear_row(row);
+                rows.push(row);
+
                 rows_cleared += 1;
                 self.clears += 1;
 
-                if self.clears % 10 == 0 {
+                if (self.clears) % 10 == 0 {
                     self.level += 1;
                     self.alert = 6;
                 }
@@ -137,6 +139,8 @@ impl AppState {
 
             row += 1.0;
         }
+
+        self.clear_row(rows);
 
         // score
         self.score += (self.level + 1)
@@ -149,12 +153,14 @@ impl AppState {
             }
     }
 
-    fn clear_row(&mut self, row: f64) {
-        self.minos.retain(|mino| mino.y != row);
+    fn clear_row(&mut self, rows: Vec<f64>) {
+        for &row in rows.iter() {
+            self.minos.retain(|mino| mino.y != row);
 
-        for mino in self.minos.iter_mut() {
-            if mino.y > row {
-                mino.y -= 1.0;
+            for mino in self.minos.iter_mut() {
+                if mino.y > row {
+                    mino.y -= 1.0;
+                }
             }
         }
     }
@@ -774,9 +780,9 @@ impl TetrominoObject {
                 while d < 5 {
                     // try delta[d]
                     if rotated.iter().any(|mino| {
-                        mino.y + self.pos[1] < 0.0
-                            || mino.x + self.pos[0] < 0.0
-                            || mino.x + self.pos[0] > 9.0
+                        mino.y + self.pos[1] + delta[d][1] < 0.0
+                            || mino.x + self.pos[0] + delta[d][0] < 0.0
+                            || mino.x + self.pos[0] + delta[d][0] > 9.0
                             || minos.iter().any(|x| {
                                 x.x == mino.x + self.pos[0] + delta[d][0]
                                     && x.y == mino.y + self.pos[1] + delta[d][1]
@@ -901,9 +907,9 @@ impl TetrominoObject {
                 while d < 5 {
                     // try delta[d]
                     if rotated.iter().any(|mino| {
-                        mino.y + self.pos[1] < 0.0
-                            || mino.x + self.pos[0] < 0.0
-                            || mino.x + self.pos[0] > 9.0
+                        mino.y + self.pos[1] + delta[d][1] < 0.0
+                            || mino.x + self.pos[0] + delta[d][0] < 0.0
+                            || mino.x + self.pos[0] + delta[d][0] > 9.0
                             || minos.iter().any(|x| {
                                 x.x == mino.x + self.pos[0] + delta[d][0]
                                     && x.y == mino.y + self.pos[1] + delta[d][1]
@@ -970,17 +976,15 @@ fn new_tetromino(minos: [Mino; 4]) -> TetrominoObject {
 }
 
 fn get_next_tetromino(ttype: Tetromino) -> [Mino; 4] {
-    let mut rng = rand::rng();
-    let colors = [
-        Color::Red,
-        Color::Blue,
-        Color::Green,
-        Color::Yellow,
-        Color::Magenta,
-        Color::Cyan,
-        Color::LightRed,
-    ];
-    let color = *colors.choose(&mut rng).unwrap();
+    let color = match ttype {
+        Tetromino::I => Color::Cyan,
+        Tetromino::O => Color::Yellow,
+        Tetromino::J => Color::Blue,
+        Tetromino::L => Color::LightRed,
+        Tetromino::T => Color::Magenta,
+        Tetromino::S => Color::Green,
+        Tetromino::Z => Color::Red,
+    };
 
     let minos_array = match ttype {
         Tetromino::I => [
@@ -1227,10 +1231,8 @@ fn main() -> Result<()> {
 }
 
 fn run(mut terminal: DefaultTerminal, app_state: &mut AppState) -> Result<()> {
-    let mut tick_rate = Duration::from_millis(app_state.period); // Controls game speed (lower = faster)
+    let mut tick_rate; // Controls game speed (lower = faster)
     let mut last_tick = Instant::now();
-
-    let mut factor = 1;
 
     loop {
         tick_rate = Duration::from_millis(app_state.period);
@@ -1258,27 +1260,32 @@ fn run(mut terminal: DefaultTerminal, app_state: &mut AppState) -> Result<()> {
                     }
 
                     event::KeyCode::Char('z') => {
-                        app_state.tetromino.twist(&app_state.minos, true);
-                    }
-
-                    event::KeyCode::Char('x') => {
                         app_state.tetromino.twist(&app_state.minos, false);
                     }
 
+                    event::KeyCode::Char('x') => {
+                        app_state.tetromino.twist(&app_state.minos, true);
+                    }
+
                     event::KeyCode::Up => {
-                        app_state.tetromino.slam(&app_state.minos);
+                        app_state.tetromino.twist(&app_state.minos, true);
                     }
 
                     event::KeyCode::Down => {
-                        if key.kind == KeyEventKind::Press {
-                            factor = 2;
+                        tick_rate = if key.kind == KeyEventKind::Press {
+                            if 120 < app_state.period {
+                                Duration::from_millis(80)
+                            } else {
+                                Duration::from_millis(app_state.period)
+                            }
                         } else {
-                            factor = 1;
-                        }
+                            Duration::from_millis(app_state.period)
+                        };
                     }
 
                     event::KeyCode::Char(' ') => {
                         app_state.tetromino.slam(&app_state.minos);
+                        tick_rate = Duration::from_millis(0);
                     }
 
                     event::KeyCode::Char('c') => {
@@ -1290,7 +1297,7 @@ fn run(mut terminal: DefaultTerminal, app_state: &mut AppState) -> Result<()> {
             }
         }
 
-        if last_tick.elapsed() >= tick_rate / factor {
+        if last_tick.elapsed() >= tick_rate {
             app_state.update();
             last_tick = Instant::now();
         }
@@ -1410,12 +1417,42 @@ fn render(frame: &mut Frame, app_state: &mut AppState) {
             }
         });
 
+    let mut delta = 0.0;
+
+    while !&app_state.tetromino.minos.iter().any(|x| {
+        (x.y + &app_state.tetromino.pos[1] + delta <= 0.0)
+            || app_state.minos.iter().any(|m| {
+                m.x == x.x + app_state.tetromino.pos[0]
+                    && m.y == x.y + app_state.tetromino.pos[1] + delta - 1.0
+            })
+    }) {
+        delta -= 1.0;
+    }
+
     let board_display = Canvas::default()
         .block(board)
         .marker(Marker::Braille)
         .x_bounds([0.0, 10.0])
         .y_bounds([0.0, 20.0])
         .paint(|ctx| {
+            for mino in &app_state.tetromino.minos {
+                ctx.draw(&Rectangle {
+                    x: mino.x + &app_state.tetromino.pos[0],
+                    y: mino.y + &app_state.tetromino.pos[1] + delta,
+                    width: 1.0,
+                    height: 1.0,
+                    color: Color::DarkGray,
+                });
+
+                ctx.draw(&Rectangle {
+                    x: mino.x + &app_state.tetromino.pos[0],
+                    y: mino.y + &app_state.tetromino.pos[1],
+                    width: 1.0,
+                    height: 1.0,
+                    color: mino.color,
+                });
+            }
+
             for mino in &app_state.minos {
                 ctx.draw(&Rectangle {
                     x: mino.x,
@@ -1437,16 +1474,6 @@ fn render(frame: &mut Frame, app_state: &mut AppState) {
 
                     fill_h += 0.25;
                 }
-            }
-
-            for mino in &app_state.tetromino.minos {
-                ctx.draw(&Rectangle {
-                    x: mino.x + &app_state.tetromino.pos[0],
-                    y: mino.y + &app_state.tetromino.pos[1],
-                    width: 1.0,
-                    height: 1.0,
-                    color: mino.color,
-                })
             }
         });
 

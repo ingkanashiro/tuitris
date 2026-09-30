@@ -48,7 +48,7 @@ struct AppState {
     period: u64,
 
     tetromino: TetrominoObject,
-    next: [Mino; 4],
+    next: [[Mino; 4]; 5],
     hold: [Mino; 4],
 
     has_hold: bool,
@@ -100,19 +100,24 @@ impl AppState {
             }
 
             // generate new tetromino at top
-            self.tetromino = new_tetromino(self.next);
-            self.next = get_next_tetromino(get_random_tetromino());
+            self.tetromino = new_tetromino(self.next[0]);
+
+            self.next[0] = self.next[1];
+            self.next[1] = self.next[2];
+            self.next[2] = self.next[3];
+            self.next[3] = self.next[4];
+            self.next[4] = get_next_tetromino(get_random_tetromino());
 
             self.can_hold = true;
         } else {
             self.tetromino.pos[1] -= 1.0;
         }
 
-        let mut row = 0.0;
+        let mut row = 20.0;
         let mut rows_cleared = 0;
         let mut rows: Vec<f64> = vec![];
 
-        while row <= 20.0 {
+        while row >= 0.0 {
             let mut row_full = true;
 
             let mut col = 0.0;
@@ -137,7 +142,7 @@ impl AppState {
                 }
             }
 
-            row += 1.0;
+            row -= 1.0;
         }
 
         self.clear_row(rows);
@@ -548,8 +553,13 @@ impl AppState {
                     },
                 ],
             };
-            self.tetromino = new_tetromino(self.next);
-            self.next = get_next_tetromino(get_random_tetromino());
+            self.tetromino = new_tetromino(self.next[0]);
+
+            self.next[0] = self.next[1];
+            self.next[1] = self.next[2];
+            self.next[2] = self.next[3];
+            self.next[3] = self.next[4];
+            self.next[4] = get_next_tetromino(get_random_tetromino());
         }
     }
 }
@@ -1203,7 +1213,13 @@ fn main() -> Result<()> {
         period: 20,
         minos: vec![],
         tetromino: new_tetromino(get_next_tetromino(get_random_tetromino())),
-        next: get_next_tetromino(get_random_tetromino()),
+        next: [
+            get_next_tetromino(get_random_tetromino()),
+            get_next_tetromino(get_random_tetromino()),
+            get_next_tetromino(get_random_tetromino()),
+            get_next_tetromino(get_random_tetromino()),
+            get_next_tetromino(get_random_tetromino()),
+        ],
         hold: get_next_tetromino(Tetromino::I),
         has_hold: false,
         can_hold: true,
@@ -1348,7 +1364,7 @@ fn render(frame: &mut Frame, app_state: &mut AppState) {
     let side_panel = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(7),
+            Constraint::Length(20),
             Constraint::Length(3),
             Constraint::Length(3),
         ])
@@ -1385,16 +1401,21 @@ fn render(frame: &mut Frame, app_state: &mut AppState) {
         .block(nextup_border)
         .marker(Marker::Braille)
         .x_bounds([0.0, 6.0])
-        .y_bounds([0.0, 6.0])
+        .y_bounds([0.0, 21.0])
         .paint(|ctx| {
-            for mino in app_state.next.iter() {
-                ctx.draw(&Rectangle {
-                    x: mino.x + 2.0,
-                    y: mino.y + 2.0,
-                    width: 1.0,
-                    height: 1.0,
-                    color: mino.color,
-                })
+            let mut next_index = 0;
+            while next_index < 4 {
+                for mino in app_state.next[next_index].iter() {
+                    ctx.draw(&Rectangle {
+                        x: mino.x + 2.0,
+                        y: mino.y + 17.0 - (5.0 * next_index as f64),
+                        width: 1.0,
+                        height: 1.0,
+                        color: mino.color,
+                    })
+                }
+
+                next_index += 1;
             }
         });
 

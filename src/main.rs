@@ -1,6 +1,6 @@
 use color_eyre::eyre::Result;
 use colored::Colorize;
-use rand::seq::IndexedRandom;
+use rand::seq::{IndexedRandom, SliceRandom};
 use ratatui::{
     DefaultTerminal, Frame,
     crossterm::event::{self, Event, KeyEventKind},
@@ -11,11 +11,14 @@ use ratatui::{
     widgets::{
         Block,
         BorderType::Double,
-        Paragraph,
+        Padding, Paragraph,
         canvas::{Canvas, Rectangle},
     },
 };
-use std::time::{Duration, Instant};
+use std::{
+    ptr::{null, null_mut},
+    time::{Duration, Instant},
+};
 
 #[derive(Debug, Clone, Copy)]
 struct Mino {
@@ -46,14 +49,17 @@ struct TetrominoObject {
 
 struct AppState {
     period: u64,
+    on_ground_time: f64,
 
     tetromino: TetrominoObject,
-    next: [[Mino; 4]; 5],
-    hold: [Mino; 4],
+    next: Vec<[Mino; 4]>,
 
+    hold: [Mino; 4],
     has_hold: bool,
     can_hold: bool,
+
     is_soft_drop: bool,
+    is_hard_drop: bool,
 
     minos: Vec<Mino>,
     game_over: bool,
@@ -63,6 +69,9 @@ struct AppState {
     clears: u64,
 
     alert: u8,
+
+    last_move: u8, // none: 0, single: 1, double: 2, triple: 3, tetris: 4, spins: 5
+    combo: u8,
 }
 
 impl AppState {
@@ -74,12 +83,32 @@ impl AppState {
             self.alert -= 1;
         }
 
+        if self.is_hard_drop {
+            self.on_ground_time = 99999999999.9;
+        }
+
         if self.tetromino.minos.iter().any(|x| {
             (x.y + self.tetromino.pos[1] <= 0.0)
                 || self.minos.iter().any(|m| {
                     m.x == x.x + self.tetromino.pos[0] && m.y == x.y + self.tetromino.pos[1] - 1.0
                 })
         }) {
+            self.on_ground_time += 2.0; // 1 period
+        } else {
+            self.tetromino.pos[1] -= 1.0;
+
+            if self.is_soft_drop {
+                self.score += 1;
+            }
+
+            self.on_ground_time = 0.0;
+        }
+
+        if self.on_ground_time
+            >= (if self.is_soft_drop { 6.0 } else { 1.0 }) * 500.0 / (self.period as f64)
+        {
+            self.is_hard_drop = false;
+
             for mino in &self.tetromino.minos {
                 self.minos.push(Mino {
                     x: mino.x + self.tetromino.pos[0],
@@ -101,21 +130,14 @@ impl AppState {
             }
 
             // generate new tetromino at top
-            self.tetromino = new_tetromino(self.next[0]);
+            self.tetromino = new_tetromino(self.next.remove(0));
 
-            self.next[0] = self.next[1];
-            self.next[1] = self.next[2];
-            self.next[2] = self.next[3];
-            self.next[3] = self.next[4];
-            self.next[4] = get_next_tetromino(get_random_tetromino());
+            if self.next.len() <= 5 {
+                let mut bag = get_new_bag();
+                self.next.append(&mut bag);
+            }
 
             self.can_hold = true;
-        } else {
-            self.tetromino.pos[1] -= 1.0;
-
-            if self.is_soft_drop {
-                self.score += 1;
-            }
         }
 
         let mut row = 20.0;
@@ -558,13 +580,12 @@ impl AppState {
                     },
                 ],
             };
-            self.tetromino = new_tetromino(self.next[0]);
+            self.tetromino = new_tetromino(self.next.remove(0));
 
-            self.next[0] = self.next[1];
-            self.next[1] = self.next[2];
-            self.next[2] = self.next[3];
-            self.next[3] = self.next[4];
-            self.next[4] = get_next_tetromino(get_random_tetromino());
+            if self.next.len() <= 5 {
+                let mut bag = get_new_bag();
+                self.next.append(&mut bag);
+            }
         }
     }
 }
@@ -1193,9 +1214,8 @@ fn get_next_tetromino(ttype: Tetromino) -> [Mino; 4] {
     return minos_array;
 }
 
-fn get_random_tetromino() -> Tetromino {
-    let mut rng = rand::rng();
-    let types = [
+fn get_new_bag() -> Vec<[Mino; 4]> {
+    let mut bag_items = [
         Tetromino::I,
         Tetromino::O,
         Tetromino::J,
@@ -1205,9 +1225,15 @@ fn get_random_tetromino() -> Tetromino {
         Tetromino::Z,
     ];
 
-    let chosen_type = types.choose(&mut rng).unwrap();
+    let mut rng = rand::rng();
+    bag_items.shuffle(&mut rng);
 
-    return chosen_type.clone();
+    let bag = bag_items
+        .iter()
+        .map(|z| get_next_tetromino(*z))
+        .collect::<Vec<[Mino; 4]>>();
+
+    return bag;
 }
 
 fn main() -> Result<()> {
@@ -1220,25 +1246,31 @@ fn main() -> Result<()> {
 
     let state = &mut AppState {
         period: 20,
+        on_ground_time: 0.0,
+
         minos: vec![],
-        tetromino: new_tetromino(get_next_tetromino(get_random_tetromino())),
-        next: [
-            get_next_tetromino(get_random_tetromino()),
-            get_next_tetromino(get_random_tetromino()),
-            get_next_tetromino(get_random_tetromino()),
-            get_next_tetromino(get_random_tetromino()),
-            get_next_tetromino(get_random_tetromino()),
-        ],
+        tetromino: new_tetromino(get_next_tetromino(Tetromino::I)),
+        next: get_new_bag(),
+
         hold: get_next_tetromino(Tetromino::I),
         has_hold: false,
         can_hold: true,
+
         is_soft_drop: false,
+        is_hard_drop: false,
+
         game_over: false,
         score: 0,
         level: 1,
         clears: 0,
+
         alert: 0,
+
+        last_move: 0,
+        combo: 0,
     };
+
+    state.tetromino = new_tetromino(state.next.remove(0));
 
     let terminal = ratatui::init();
     let result = run(terminal, state);
@@ -1299,20 +1331,17 @@ fn run(mut terminal: DefaultTerminal, app_state: &mut AppState) -> Result<()> {
 
                     event::KeyCode::Down => {
                         tick_rate = if key.kind == KeyEventKind::Press {
-                            if 120 < app_state.period {
-                                app_state.is_soft_drop = true;
-                                Duration::from_millis(80)
-                            } else {
-                                app_state.is_soft_drop = false;
-                                Duration::from_millis(app_state.period)
-                            }
+                            app_state.is_soft_drop = true;
+                            Duration::from_millis(app_state.period / 6)
                         } else {
+                            app_state.is_soft_drop = false;
                             Duration::from_millis(app_state.period)
                         };
                     }
 
                     event::KeyCode::Char(' ') => {
                         app_state.score += app_state.tetromino.slam(&app_state.minos);
+                        app_state.is_hard_drop = true;
                         tick_rate = Duration::from_millis(0);
                     }
 
@@ -1361,7 +1390,7 @@ fn render(frame: &mut Frame, app_state: &mut AppState) {
 
     let hold_area = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(7)])
+        .constraints([Constraint::Length(7), Constraint::Fill(1)])
         .split(center[1]);
 
     let hold_panel = Block::bordered()
@@ -1371,7 +1400,9 @@ fn render(frame: &mut Frame, app_state: &mut AppState) {
             Color::DarkGray
         })
         .border_type(Double)
-        .title_top(Line::from("[ HOLD (C) ]").centered().bold());
+        .title_top(Line::from("[ HOLD ]").centered().bold());
+
+    let history = Block::default().padding(Padding::new(2, 2, 1, 2));
 
     let side_panel = Layout::default()
         .direction(Direction::Vertical)
@@ -1520,9 +1551,16 @@ fn render(frame: &mut Frame, app_state: &mut AppState) {
     })
     .block(level_border);
 
+    let history_display = Paragraph::new(vec![
+        Line::from(format!("{}", &app_state.last_move)),
+        Line::from(format!("{}", &app_state.combo)),
+    ])
+    .block(history);
+
     frame.render_widget(hold_display, hold_area[0]);
     frame.render_widget(board_display, center[2]);
     frame.render_widget(nextup_display, side_panel[0]);
     frame.render_widget(score_display, side_panel[1]);
     frame.render_widget(level_display, side_panel[2]);
+    frame.render_widget(history_display, hold_area[1]);
 }

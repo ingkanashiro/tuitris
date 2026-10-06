@@ -1,13 +1,13 @@
 use color_eyre::eyre::Result;
 use colored::Colorize;
-use rand::seq::{IndexedRandom, SliceRandom};
+use rand::seq::SliceRandom;
 use ratatui::{
     DefaultTerminal, Frame,
     crossterm::event::{self, Event, KeyEventKind},
     layout::{Constraint, Direction, Layout},
-    style::{Color, Stylize},
+    style::{Color, Style, Stylize},
     symbols::Marker,
-    text::Line,
+    text::{Line, Span},
     widgets::{
         Block,
         BorderType::Double,
@@ -15,10 +15,7 @@ use ratatui::{
         canvas::{Canvas, Rectangle},
     },
 };
-use std::{
-    ptr::{null, null_mut},
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy)]
 struct Mino {
@@ -39,6 +36,16 @@ enum Tetromino {
     Z,
 }
 
+#[derive(PartialEq)]
+enum Input {
+    Displacement,
+    SoftDrop,
+    HardDrop,
+    Rotation,
+    None,
+}
+
+#[derive(Clone)]
 struct TetrominoObject {
     minos: [Mino; 4],
     pos: [f64; 2],
@@ -50,6 +57,8 @@ struct TetrominoObject {
 struct AppState {
     period: u64,
     on_ground_time: f64,
+
+    last_input: Input,
 
     tetromino: TetrominoObject,
     next: Vec<[Mino; 4]>,
@@ -64,20 +73,38 @@ struct AppState {
     minos: Vec<Mino>,
     game_over: bool,
 
-    score: u64,
+    score: f64,
     level: u64,
     clears: u64,
+
+    may_b2b: bool,
 
     alert: u8,
 
     last_move: u8, // none: 0, single: 1, double: 2, triple: 3, tetris: 4, spins: 5
     combo: u8,
+    backtoback: u8,
+
+    msg: u8,
+
+    move_msg: Line<'static>,
+    modifier_msg: Line<'static>,
 }
 
 impl AppState {
     fn update(&mut self) {
         self.period =
             (1000.0 * (0.8 - (self.level - 1) as f64 * 0.007).powf((self.level - 1) as f64)) as u64;
+
+        let last_tetromino = self.tetromino.clone();
+        let last_minos = self.minos.clone();
+
+        if self.msg > 0 {
+            self.msg -= 1;
+        } else {
+            self.move_msg = Line::from("");
+            self.modifier_msg = Line::from("");
+        }
 
         if self.alert > 0 {
             self.alert -= 1;
@@ -98,7 +125,7 @@ impl AppState {
             self.tetromino.pos[1] -= 1.0;
 
             if self.is_soft_drop {
-                self.score += 1;
+                self.score += 1.0;
             }
 
             self.on_ground_time = 0.0;
@@ -173,16 +200,176 @@ impl AppState {
         }
 
         self.clear_row(rows);
+        let mut retains_b2b = false;
+        let mut keep_b2b = false;
 
-        // score
-        self.score += (self.level)
-            * match rows_cleared {
-                0 => 0,
-                1 => 100,
-                2 => 300,
-                3 => 500,
-                _ => 800,
+        if rows_cleared > 0 {
+            self.msg = 5;
+        } else {
+            keep_b2b = true;
+        }
+
+        // scoring
+        if self.minos.is_empty() {
+            // perfect clear
+
+            let mut awards = self.level as f64
+                * match rows_cleared {
+                    0 => 0.0,
+                    1 => 800.0,
+                    2 => 1200.0,
+                    3 => 1800.0,
+                    _ => 3200.0,
+                };
+
+            if self.backtoback > 1 {
+                awards *= 1.5;
             }
+
+            self.backtoback += 1;
+            self.score += awards;
+
+            return;
+        } else {
+            if rows_cleared >= 4 {
+                retains_b2b = true;
+            }
+
+            match rows_cleared {
+                0 => {}
+                1 => {
+                    self.move_msg = Line::from("SINGLE").bold();
+                }
+                2 => {
+                    self.move_msg = Line::from("DOUBLE").bold();
+                }
+                3 => {
+                    self.move_msg = Line::from("TRIPLE").bold();
+                }
+                4 => {
+                    self.move_msg = Line::from("TETRIS").bold();
+                    retains_b2b = true;
+                }
+                _ => {}
+            }
+
+            // spins
+            let mut use_spin_award = false;
+            match last_tetromino.from {
+                Tetromino::T => {
+                    let delta = [[1.0, 1.0], [-1.0, 1.0], [1.0, -1.0], [-1.0, -1.0]];
+
+                    let mut checks = 0;
+                    for d in delta {
+                        if last_minos.iter().any(|z| {
+                            (z.x == last_tetromino.pos[0] + d[0]
+                                && z.y == last_tetromino.pos[1] + d[1])
+                                || last_tetromino.pos[0] + d[0] < 0.0
+                                || last_tetromino.pos[0] + d[0] > 9.0
+                                || last_tetromino.pos[1] + d[1] < 0.0
+                        }) {
+                            checks += 1;
+                        }
+                    }
+
+                    if self.last_input == Input::Rotation && checks >= 3 {
+                        // T-spin
+                        if true {
+                            self.modifier_msg = Line::from(vec![Span::styled(
+                                "T-spin",
+                                Style::default().bold().fg(last_tetromino.color),
+                            )]);
+
+                            use_spin_award = true;
+                        } else {
+                            // mini T-spin
+                            self.modifier_msg = Line::from(vec![
+                                Span::styled(
+                                    "mini",
+                                    Style::default().italic().fg(last_tetromino.color),
+                                ),
+                                Span::styled(
+                                    " T-spin",
+                                    Style::default().bold().fg(last_tetromino.color),
+                                ),
+                            ]);
+                        }
+
+                        retains_b2b = true;
+                        self.msg = 5;
+                    }
+                }
+
+                _ => {
+                    if last_minos.iter().any(|mino| {
+                        last_tetromino.minos.iter().any(|p| {
+                            mino.x == p.x + last_tetromino.pos[0]
+                                && mino.y == p.y + last_tetromino.pos[1] + 1.0
+                        })
+                    }) && self.last_input == Input::Rotation
+                    {
+                        // mini spin detected
+
+                        self.modifier_msg = Line::from(vec![
+                            Span::styled(
+                                "mini",
+                                Style::default().italic().fg(last_tetromino.color),
+                            ),
+                            Span::styled(
+                                format!(
+                                    " {}-spin",
+                                    match last_tetromino.from {
+                                        Tetromino::I => "I",
+                                        Tetromino::O => "O",
+                                        Tetromino::J => "J",
+                                        Tetromino::L => "L",
+                                        Tetromino::T => "T",
+                                        Tetromino::S => "S",
+                                        Tetromino::Z => "Z",
+                                    }
+                                ),
+                                Style::default().bold().fg(last_tetromino.color),
+                            ),
+                        ]);
+
+                        retains_b2b = true;
+                        self.msg = 5;
+                    }
+                }
+            }
+
+            // normal
+            let mut awards = self.level as f64
+                * if use_spin_award {
+                    match rows_cleared {
+                        0 => 100.0,
+                        1 => 800.0,
+                        2 => 1200.0,
+                        3 => 1600.0,
+                        _ => 2000.0, // impossible
+                    }
+                } else {
+                    match rows_cleared {
+                        0 => 0.0,
+                        1 => 100.0,
+                        2 => 300.0,
+                        3 => 500.0,
+                        _ => 800.0,
+                    }
+                };
+
+            if retains_b2b {
+                if self.backtoback > 1 {
+                    awards *= 1.5;
+                }
+
+                self.backtoback += 1;
+            } else if !keep_b2b {
+                self.backtoback = 0;
+            }
+
+            self.score += awards;
+        }
     }
 
     fn clear_row(&mut self, rows: Vec<f64>) {
@@ -591,13 +778,13 @@ impl AppState {
 }
 
 impl TetrominoObject {
-    fn twist(&mut self, minos: &Vec<Mino>, flipped: bool) {
+    fn twist(&mut self, minos: &Vec<Mino>, flipped: bool) -> bool {
         // if flipped = true, then turn clockwise
         let fallback = self.state;
 
         match self.from {
             Tetromino::O => {
-                return;
+                return false;
             }
 
             Tetromino::I => {
@@ -826,7 +1013,7 @@ impl TetrominoObject {
                     }) {
                         if d == 4 {
                             self.state = fallback;
-                            return;
+                            return false;
                         }
 
                         d += 1;
@@ -840,6 +1027,7 @@ impl TetrominoObject {
                 }
 
                 self.minos = rotated;
+                return true;
             }
 
             _ => {
@@ -953,7 +1141,7 @@ impl TetrominoObject {
                     }) {
                         if d == 4 {
                             self.state = fallback;
-                            return;
+                            return false;
                         }
 
                         d += 1;
@@ -967,11 +1155,12 @@ impl TetrominoObject {
                 }
 
                 self.minos = rotated;
+                return true;
             }
         }
     }
 
-    fn shift(&mut self, minos: &Vec<Mino>, dir: f64) {
+    fn shift(&mut self, minos: &Vec<Mino>, dir: f64) -> bool {
         if !self.minos.iter().any(|x| {
             (x.x + self.pos[0] + dir < 0.0 || x.x + self.pos[0] + dir >= 10.0)
                 || minos
@@ -979,12 +1168,15 @@ impl TetrominoObject {
                     .any(|m| m.x == x.x + self.pos[0] + dir && m.y == x.y + self.pos[1])
         }) {
             self.pos[0] += dir;
+            return true;
+        } else {
+            return false;
         }
     }
 
-    fn slam(&mut self, minos: &Vec<Mino>) -> u64 {
+    fn slam(&mut self, minos: &Vec<Mino>) -> f64 {
         let mut delta = 0.0;
-        let mut extra = 0;
+        let mut extra = 0.0;
 
         while !self.minos.iter().any(|x| {
             (x.y + self.pos[1] + delta <= 0.0)
@@ -993,7 +1185,7 @@ impl TetrominoObject {
                     .any(|m| m.x == x.x + self.pos[0] && m.y == x.y + self.pos[1] + delta - 1.0)
         }) {
             delta -= 1.0;
-            extra += 2;
+            extra += 2.0;
         }
 
         self.pos[1] += delta;
@@ -1252,6 +1444,8 @@ fn main() -> Result<()> {
         tetromino: new_tetromino(get_next_tetromino(Tetromino::I)),
         next: get_new_bag(),
 
+        last_input: Input::None,
+
         hold: get_next_tetromino(Tetromino::I),
         has_hold: false,
         can_hold: true,
@@ -1260,14 +1454,22 @@ fn main() -> Result<()> {
         is_hard_drop: false,
 
         game_over: false,
-        score: 0,
+        score: 0.0,
         level: 1,
         clears: 0,
+
+        may_b2b: false,
 
         alert: 0,
 
         last_move: 0,
         combo: 0,
+        backtoback: 0,
+
+        msg: 0,
+
+        move_msg: Line::from(""),
+        modifier_msg: Line::from(""),
     };
 
     state.tetromino = new_tetromino(state.next.remove(0));
@@ -1310,28 +1512,40 @@ fn run(mut terminal: DefaultTerminal, app_state: &mut AppState) -> Result<()> {
                     }
 
                     event::KeyCode::Left => {
-                        app_state.tetromino.shift(&app_state.minos, -1.0);
+                        if app_state.tetromino.shift(&app_state.minos, -1.0) {
+                            app_state.last_input = Input::Displacement;
+                        }
                     }
 
                     event::KeyCode::Right => {
-                        app_state.tetromino.shift(&app_state.minos, 1.0);
+                        if app_state.tetromino.shift(&app_state.minos, 1.0) {
+                            app_state.last_input = Input::Displacement;
+                        }
                     }
 
                     event::KeyCode::Char('z') => {
-                        app_state.tetromino.twist(&app_state.minos, false);
+                        if app_state.tetromino.twist(&app_state.minos, false) {
+                            app_state.last_input = Input::Rotation;
+                        }
                     }
 
                     event::KeyCode::Char('x') => {
-                        app_state.tetromino.twist(&app_state.minos, true);
+                        if app_state.tetromino.twist(&app_state.minos, true) {
+                            app_state.last_input = Input::Rotation;
+                        }
                     }
 
                     event::KeyCode::Up => {
-                        app_state.tetromino.twist(&app_state.minos, true);
+                        if app_state.tetromino.twist(&app_state.minos, true) {
+                            app_state.last_input = Input::Rotation;
+                        }
                     }
 
                     event::KeyCode::Down => {
                         tick_rate = if key.kind == KeyEventKind::Press {
                             app_state.is_soft_drop = true;
+                            app_state.last_input = Input::SoftDrop;
+
                             Duration::from_millis(app_state.period / 6)
                         } else {
                             app_state.is_soft_drop = false;
@@ -1340,9 +1554,15 @@ fn run(mut terminal: DefaultTerminal, app_state: &mut AppState) -> Result<()> {
                     }
 
                     event::KeyCode::Char(' ') => {
-                        app_state.score += app_state.tetromino.slam(&app_state.minos);
+                        let hard_dropped = app_state.tetromino.slam(&app_state.minos);
+
+                        app_state.score += hard_dropped;
                         app_state.is_hard_drop = true;
                         tick_rate = Duration::from_millis(0);
+
+                        if hard_dropped > 0.0 {
+                            app_state.last_input = Input::HardDrop;
+                        }
                     }
 
                     event::KeyCode::Char('c') => {
@@ -1551,10 +1771,30 @@ fn render(frame: &mut Frame, app_state: &mut AppState) {
     })
     .block(level_border);
 
-    let history_display = Paragraph::new(vec![
-        Line::from(format!("{}", &app_state.last_move)),
-        Line::from(format!("{}", &app_state.combo)),
-    ])
+    let history_display = Paragraph::new(if app_state.msg > 0 {
+        vec![
+            app_state.move_msg.clone(),
+            app_state.modifier_msg.clone(),
+            Line::from(""),
+            if app_state.backtoback > 1 {
+                Line::from(vec![
+                    Span::styled("B2B", Style::default().bold().yellow()),
+                    if app_state.backtoback > 2 {
+                        Span::styled(
+                            format!(" x{}", app_state.backtoback - 1),
+                            Style::default().yellow(),
+                        )
+                    } else {
+                        Span::from("")
+                    },
+                ])
+            } else {
+                Line::from("")
+            },
+        ]
+    } else {
+        vec![]
+    })
     .block(history);
 
     frame.render_widget(hold_display, hold_area[0]);

@@ -274,7 +274,22 @@ impl AppState {
 
                     if self.last_input == Input::Rotation && checks >= 3 {
                         // T-spin
-                        if true {
+                        if match last_tetromino.state {
+                            1 => [[-1.0, 1.0], [-1.0, -1.0]],
+                            2 => [[1.0, -1.0], [-1.0, -1.0]],
+                            3 => [[1.0, 1.0], [1.0, -1.0]],
+                            _ => [[1.0, 1.0], [-1.0, 1.0]],
+                        }
+                        .iter()
+                        .all(|d| {
+                            last_minos.iter().any(|z| {
+                                (z.x == last_tetromino.pos[0] + d[0]
+                                    && z.y == last_tetromino.pos[1] + d[1])
+                                    || last_tetromino.pos[0] + d[0] < 0.0
+                                    || last_tetromino.pos[0] + d[0] > 9.0
+                                    || last_tetromino.pos[1] + d[1] < 0.0
+                            })
+                        }) {
                             self.modifier_msg = Line::from(vec![Span::styled(
                                 "T-spin",
                                 Style::default().bold().fg(last_tetromino.color),
